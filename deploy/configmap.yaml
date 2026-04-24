@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apiserver-cache-config
+  namespace: apiserver-cache
+data:
+  config.yaml: |
+    kubernetes:
+      cluster_url: ""
+      kubeconfig_path: ""
+    
+    server:
+      host: "0.0.0.0"
+      port: 8080
+    
+    auth:
+      api_token: "k8s-incluster-token-2026"
+    
+    logging:
+      level: "info"

@@ -1,0 +1,22 @@
+# Kubernetes configuration
+kubernetes:
+  # Kubernetes cluster URL (leave empty to use in-cluster config)
+  cluster_url: ""
+  # Path to kubeconfig file (leave empty to use default)
+  kubeconfig_path: ""
+
+# Server configuration
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# Authentication
+auth:
+  # API token for authentication (used in x-api-token header)
+  api_token: "aabb"
+
+# Logging
+logging:
+  # Log level: trace, debug, info, warn, error
+  # level: "info"
+  level: "debug"

@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apiserver-cache
+  labels:
+    name: apiserver-cache

@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apiserver-cache
+  namespace: apiserver-cache
+  labels:
+    app: apiserver-cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apiserver-cache
+  template:
+    metadata:
+      labels:
+        app: apiserver-cache
+    spec:
+      serviceAccountName: apiserver-cache
+      containers:
+        - name: apiserver-cache
+          image: apiserver-cache:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: RUST_LOG
+              value: "info"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/check
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/check
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: apiserver-cache-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apiserver-cache
+  namespace: apiserver-cache
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: apiserver-cache
+rules:
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: apiserver-cache
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: apiserver-cache
+subjects:
+  - kind: ServiceAccount
+    name: apiserver-cache
+    namespace: apiserver-cache
