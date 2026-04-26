@@ -19,4 +19,4 @@ auth:
 logging:
   # Log level: trace, debug, info, warn, error
   # level: "info"
-  level: "debug"
+  level: "info"

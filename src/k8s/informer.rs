@@ -4,26 +4,24 @@ use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
     Client,
     api::Api,
-    runtime::{WatchStreamExt, reflector, watcher},
+    runtime::{WatchStreamExt, watcher},
 };
 use std::pin::pin;
 
 use super::cache::EndpointSliceCache;
 
-/// Start the Kubernetes reflector for EndpointSlices
-pub async fn start_reflector() -> Result<EndpointSliceCache> {
+/// Start the Kubernetes watcher for EndpointSlices with O(1) index cache.
+pub async fn start_watcher() -> Result<EndpointSliceCache> {
     let client = Client::try_default().await?;
-
     let endpoint_slices: Api<EndpointSlice> = Api::all(client);
-
     let config = watcher::Config::default();
 
-    let (store, writer) = reflector::store::<EndpointSlice>();
+    let cache = EndpointSliceCache::new();
+    let cache_clone = cache.clone();
 
     let stream = watcher(endpoint_slices, config).default_backoff();
-    let stream = reflector::reflector(writer, stream);
 
-    log::info!("Starting Kubernetes EndpointSlice reflector...");
+    log::info!("Starting Kubernetes EndpointSlice watcher...");
 
     // Spawn the watcher loop in background
     tokio::spawn(async move {
@@ -33,40 +31,46 @@ pub async fn start_reflector() -> Result<EndpointSliceCache> {
                 Ok(event) => match event {
                     kube::runtime::watcher::Event::Apply(obj)
                     | kube::runtime::watcher::Event::InitApply(obj) => {
-                        let namespace = obj.metadata.namespace.as_deref().unwrap_or("default");
-                        let name = obj.metadata.name.as_deref().unwrap_or("unknown");
-                        log::debug!("EndpointSlice {}/{} applied", namespace, name);
+                        cache_clone.apply(&obj);
+                        log::debug!(
+                            "EndpointSlice {}/{} applied, {} endpoints",
+                            obj.metadata.namespace.as_deref().unwrap_or("default"),
+                            obj.metadata.name.as_deref().unwrap_or("unknown"),
+                            obj.endpoints.len()
+                        );
                     }
                     kube::runtime::watcher::Event::Delete(obj) => {
-                        let namespace = obj.metadata.namespace.as_deref().unwrap_or("default");
-                        let name = obj.metadata.name.as_deref().unwrap_or("unknown");
-                        log::debug!("EndpointSlice {}/{} deleted", namespace, name);
+                        cache_clone.delete(&obj);
+                        log::debug!(
+                            "EndpointSlice {}/{} deleted",
+                            obj.metadata.namespace.as_deref().unwrap_or("default"),
+                            obj.metadata.name.as_deref().unwrap_or("unknown")
+                        );
                     }
                     _ => {}
                 },
                 Err(e) => {
-                    log::error!("Reflector error: {}", e);
+                    log::error!("Watcher error: {}", e);
                 }
             }
         }
-        log::warn!("Reflector stream ended");
+        log::warn!("Watcher stream ended");
     });
 
-    Ok(EndpointSliceCache::new(store))
+    Ok(cache)
 }
 
-/// Start the reflector in a background task, returning the cache handle
-pub fn start_reflector_task() -> tokio::task::JoinHandle<EndpointSliceCache> {
+/// Start the watcher in a background task, returning the cache handle
+pub fn start_watcher_task() -> tokio::task::JoinHandle<Result<EndpointSliceCache>> {
     tokio::spawn(async move {
         loop {
-            match start_reflector().await {
+            match start_watcher().await {
                 Ok(cache) => {
-                    log::info!("Reflector started successfully");
-                    // Return the cache - the reflector loop continues in background
-                    return cache;
+                    log::info!("Watcher started successfully");
+                    return Ok(cache);
                 }
                 Err(e) => {
-                    log::error!("Reflector start error: {}, retrying in 5 seconds...", e);
+                    log::error!("Watcher start error: {}, retrying in 5 seconds...", e);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 }
             }

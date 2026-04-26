@@ -43,9 +43,9 @@ async fn main() -> anyhow::Result<()> {
     info!("Configuration loaded from: {}", cli.config);
     info!("Server will listen on: {}", config.server_addr());
 
-    // Start Kubernetes reflector and get cache handle
-    info!("Starting Kubernetes reflector...");
-    let cache: k8s::cache::EndpointSliceCache = k8s::start_reflector_task().await?;
+    // Start Kubernetes watcher and get cache handle
+    info!("Starting Kubernetes watcher...");
+    let cache: k8s::cache::EndpointSliceCache = k8s::start_watcher_task().await??;
 
     info!("Reflector started, cache ready");
 

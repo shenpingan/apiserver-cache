@@ -1,78 +1,71 @@
 use std::sync::Arc;
+use dashmap::DashMap;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
-use kube::runtime::reflector::Store;
 
-/// Cache for storing EndpointSlice data using kube-rs reflector Store.
+/// Cache key: (namespace, service_name)
+type CacheKey = (String, String);
+
+/// High-performance cache with O(1) lookup by (namespace, service_name).
 ///
-/// EndpointSlice names are `{service-name}-{hash}`, not the service name itself.
-/// We look up by the `kubernetes.io/service-name` label instead.
+/// Uses DashMap for lock-free concurrent reads.
+/// EndpointSlice names are `{service-name}-{hash}`, so we index by
+/// `kubernetes.io/service-name` label.
 #[derive(Clone)]
 pub struct EndpointSliceCache {
-    store: Store<EndpointSlice>,
+    /// Index: (namespace, service_name) -> total endpoint count
+    index: Arc<DashMap<CacheKey, usize>>,
 }
 
 impl EndpointSliceCache {
-    pub fn new(store: Store<EndpointSlice>) -> Self {
-        Self { store }
-    }
-
-    /// Get total endpoint count across all EndpointSlices for a given service.
-    ///
-    /// EndpointSlice names are `{service-name}-{hash}`, so we match by the
-    /// `kubernetes.io/service-name` label instead of the resource name.
-    pub fn get_endpoint_count(&self, namespace: &str, service_name: &str) -> Option<usize> {
-        let total: usize = self
-            .store
-            .state()
-            .into_iter()
-            .filter(|es| {
-                let ns = es.metadata.namespace.as_deref().unwrap_or("");
-                let svc = es
-                    .metadata
-                    .labels
-                    .as_ref()
-                    .and_then(|l| l.get("kubernetes.io/service-name"))
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-                ns == namespace && svc == service_name
-            })
-            .map(|es| es.endpoints.len())
-            .sum();
-
-        if total > 0 {
-            Some(total)
-        } else {
-            None
+    pub fn new() -> Self {
+        Self {
+            index: Arc::new(DashMap::new()),
         }
     }
 
-    /// Get all EndpointSlices for a service (by service name label).
-    #[allow(dead_code)]
-    pub fn get_by_service(
-        &self,
-        namespace: &str,
-        service_name: &str,
-    ) -> Vec<Arc<EndpointSlice>> {
-        self.store
-            .state()
-            .into_iter()
-            .filter(|es| {
-                let ns = es.metadata.namespace.as_deref().unwrap_or("");
-                let svc = es
-                    .metadata
-                    .labels
-                    .as_ref()
-                    .and_then(|l| l.get("kubernetes.io/service-name"))
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-                ns == namespace && svc == service_name
-            })
-            .collect()
+    /// Insert or update an EndpointSlice into the index.
+    pub fn apply(&self, es: &EndpointSlice) {
+        let namespace = es.metadata.namespace.as_deref().unwrap_or("").to_string();
+        let service_name = es
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("kubernetes.io/service-name"))
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
+        if service_name.is_empty() {
+            return;
+        }
+
+        let key = (namespace, service_name);
+        let count = es.endpoints.len();
+        self.index.insert(key, count);
     }
 
-    /// Get all cached EndpointSlices
-    #[allow(dead_code)]
-    pub fn state(&self) -> Vec<Arc<EndpointSlice>> {
-        self.store.state()
+    /// Remove an EndpointSlice from the index.
+    pub fn delete(&self, es: &EndpointSlice) {
+        let namespace = es.metadata.namespace.as_deref().unwrap_or("").to_string();
+        let service_name = es
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("kubernetes.io/service-name"))
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
+        if service_name.is_empty() {
+            return;
+        }
+
+        let key = (namespace, service_name);
+        self.index.remove(&key);
+    }
+
+    /// Get total endpoint count for a service. O(1) lookup.
+    pub fn get_endpoint_count(&self, namespace: &str, service_name: &str) -> Option<usize> {
+        self.index
+            .get(&(namespace.to_string(), service_name.to_string()))
+            .map(|r| *r.value())
     }
 }
