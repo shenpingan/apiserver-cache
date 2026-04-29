@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del *)",
+      "Bash(cargo check)",
+      "Bash(cargo build)",
+      "Bash(.\\target\\debug\\apiserver-cache.exe)",
+      "Bash($env:rust_log='info')",
+      "Bash(.\\target\\debug\\apiserver-cache.exe *)",
+      "Bash(select-object *)",
+      "Bash($env:rust_log='debug')",
+      "Bash(start-process *)",
+      "Bash(mkdir *)"
+    ]
+  },
+  "$version": 3
+}
